@@ -1,0 +1,298 @@
+// MA Stad - database schema (MySQL).
+// Conventions:
+//   - Models are singular PascalCase, tables snake_case via @@map.
+//   - All money is stored in "ore" (1 SEK = 100 ore) as Int, never as Float,
+//     so that price arithmetic is exact.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue
+// ---------------------------------------------------------------------------
+
+enum ServiceCategory {
+  PRIVATE // households, eligible for the RUT deduction
+  BUSINESS // companies, priced excluding VAT
+}
+
+enum PricingModel {
+  PER_SQM // price = max(sqm * pricePerSqm, minPrice)
+  HOURLY // price = hours * hourlyRate
+  PACKAGE // fixed package price
+  QUOTE_ONLY // no online price, the customer requests a quote instead
+}
+
+model Service {
+  id           Int             @id @default(autoincrement())
+  slug         String          @unique @db.VarChar(80)
+  category     ServiceCategory
+  pricingModel PricingModel
+  // Money fields in ore. Null when the pricing model does not use them.
+  pricePerSqm  Int?
+  minPrice     Int?
+  hourlyRate   Int?
+  packagePrice Int?
+  rutEligible  Boolean         @default(false)
+  isPopular    Boolean         @default(false)
+  sortOrder    Int             @default(0)
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  translations ServiceTranslation[]
+  extras       ServiceExtra[]
+  bookings     Booking[]
+  quotes       Quote[]
+
+  @@map("services")
+}
+
+// One row per language, so adding a language never touches the Service table.
+model ServiceTranslation {
+  id               Int     @id @default(autoincrement())
+  serviceId        Int
+  locale           String  @db.VarChar(5) // "sv" | "en"
+  name             String  @db.VarChar(120)
+  shortDescription String  @db.VarChar(255)
+  longDescription  String? @db.Text
+  metaTitle        String? @db.VarChar(160)
+  metaDescription  String? @db.VarChar(255)
+  includes         Json? // array of strings: what the service covers
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, locale])
+  @@map("service_translations")
+}
+
+// Optional add-ons offered in the booking calculator (oven, fridge, balcony...).
+model ServiceExtra {
+  id        Int     @id @default(autoincrement())
+  serviceId Int
+  key       String  @db.VarChar(60)
+  price     Int // ore
+  nameSv    String  @db.VarChar(120)
+  nameEn    String  @db.VarChar(120)
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  service Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  lines   BookingExtra[]
+
+  @@unique([serviceId, key])
+  @@map("service_extras")
+}
+
+// ---------------------------------------------------------------------------
+// Customers and bookings
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id         Int      @id @default(autoincrement())
+  name       String   @db.VarChar(120)
+  email      String   @db.VarChar(160)
+  phone      String   @db.VarChar(40)
+  street     String?  @db.VarChar(160)
+  postalCode String?  @db.VarChar(12)
+  city       String?  @db.VarChar(80)
+  isCompany  Boolean  @default(false)
+  orgNumber  String?  @db.VarChar(20)
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  bookings Booking[]
+  quotes   Quote[]
+
+  @@index([email])
+  @@index([phone])
+  @@map("customers")
+}
+
+enum Frequency {
+  ONCE
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum BookingStatus {
+  NEW // submitted by the customer, not yet handled
+  CONFIRMED // we called back and confirmed the slot
+  SCHEDULED // assigned to a cleaning team
+  COMPLETED
+  CANCELLED
+}
+
+model Booking {
+  id            Int           @id @default(autoincrement())
+  reference     String        @unique @db.VarChar(16) // e.g. "MA-2609-0042"
+  customerId    Int
+  serviceId     Int
+  status        BookingStatus @default(NEW)
+  frequency     Frequency     @default(ONCE)
+  // What is being cleaned
+  squareMeters  Int?
+  rooms         Int?
+  floor         String?       @db.VarChar(20)
+  hasElevator   Boolean?
+  hasPets       Boolean?
+  // When
+  scheduledDate DateTime?     @db.Date
+  timeSlotId    Int?
+  // Price snapshot, always recalculated server side. Values in ore.
+  basePrice     Int
+  extrasPrice   Int           @default(0)
+  grossPrice    Int // price before the RUT deduction
+  rutDeduction  Int           @default(0)
+  totalPrice    Int // what the customer actually pays
+  applyRut      Boolean       @default(false)
+  message       String?       @db.Text
+  internalNotes String?       @db.Text
+  source        String        @default("web") @db.VarChar(40)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  customer Customer       @relation(fields: [customerId], references: [id])
+  service  Service        @relation(fields: [serviceId], references: [id])
+  timeSlot TimeSlot?      @relation(fields: [timeSlotId], references: [id])
+  extras   BookingExtra[]
+
+  @@index([status, scheduledDate])
+  @@index([createdAt])
+  @@map("bookings")
+}
+
+// Extras are copied onto the booking so that historic totals stay correct
+// even after the catalogue price changes.
+model BookingExtra {
+  id        Int    @id @default(autoincrement())
+  bookingId Int
+  extraId   Int?
+  label     String @db.VarChar(120)
+  price     Int // ore, snapshot taken at booking time
+
+  booking Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  extra   ServiceExtra? @relation(fields: [extraId], references: [id], onDelete: SetNull)
+
+  @@map("booking_extras")
+}
+
+// ---------------------------------------------------------------------------
+// Availability: one row per bookable slot, capacity = number of teams free.
+// ---------------------------------------------------------------------------
+
+model TimeSlot {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @db.Date
+  startTime   String   @db.VarChar(5) // "08:00"
+  endTime     String   @db.VarChar(5) // "12:00"
+  capacity    Int      @default(1)
+  bookedCount Int      @default(0)
+  isBlocked   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  bookings Booking[]
+
+  @@unique([date, startTime])
+  @@index([date, isBlocked])
+  @@map("time_slots")
+}
+
+// ---------------------------------------------------------------------------
+// Leads
+// ---------------------------------------------------------------------------
+
+enum QuoteStatus {
+  NEW
+  CONTACTED
+  SENT
+  WON
+  LOST
+}
+
+model Quote {
+  id           Int         @id @default(autoincrement())
+  reference    String      @unique @db.VarChar(16)
+  customerId   Int
+  serviceId    Int?
+  status       QuoteStatus @default(NEW)
+  propertyType String?     @db.VarChar(60) // apartment, villa, office, stairwell...
+  squareMeters Int?
+  frequency    Frequency?
+  description  String?     @db.Text
+  quotedAmount Int? // ore, filled in by staff
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  service  Service? @relation(fields: [serviceId], references: [id])
+
+  @@index([status])
+  @@map("quotes")
+}
+
+model CallbackRequest {
+  id        Int      @id @default(autoincrement())
+  name      String?  @db.VarChar(120)
+  phone     String   @db.VarChar(40)
+  handled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("callback_requests")
+}
+
+// CV files are emailed as attachments and never written to disk: the app
+// directory on shared hosting is replaced on every rebuild.
+model JobApplication {
+  id                Int      @id @default(autoincrement())
+  name              String   @db.VarChar(120)
+  email             String   @db.VarChar(160)
+  phone             String   @db.VarChar(40)
+  city              String?  @db.VarChar(80)
+  hasDriversLicense Boolean  @default(false)
+  message           String?  @db.Text
+  cvFileName        String?  @db.VarChar(255)
+  handled           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@map("job_applications")
+}
+
+// ---------------------------------------------------------------------------
+// Admin
+// ---------------------------------------------------------------------------
+
+enum AdminRole {
+  ADMIN
+  STAFF
+}
+
+model Admin {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique @db.VarChar(160)
+  passwordHash String    @db.VarChar(255)
+  name         String    @db.VarChar(120)
+  role         AdminRole @default(STAFF)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@map("admins")
+}
+
+// Key/value settings so prices and rules can change without a deploy.
+model Setting {
+  key       String   @id @db.VarChar(60)
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
