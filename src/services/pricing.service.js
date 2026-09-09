@@ -70,7 +70,12 @@ export function calculatePrice(input) {
     };
   }
 
-  const multiplier = FREQUENCY_MULTIPLIER[frequency];
+  // A package price is what it says: a one-off service already priced as a
+  // single visit. Only recurring models move with how often we come.
+  const isRecurring =
+    service.pricingModel === 'PER_SQM' || service.pricingModel === 'HOURLY';
+  const multiplier = isRecurring ? FREQUENCY_MULTIPLIER[frequency] : 1;
+
   const basePrice = roundToKronor(calculateBasePrice(input) * multiplier);
 
   const appliedExtras = availableExtras.filter((extra) => extraKeys.includes(extra.key));
