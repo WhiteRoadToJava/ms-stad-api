@@ -16,13 +16,16 @@ import { formatOre } from '../utils/money.js';
 let transporter = null;
 
 const getTransporter = () => {
-  if (!env.SMTP_HOST || !env.SMTP_USER) return null;
+  if (!env.SMTP_HOST) return null;
 
+  // Local mail catchers such as Mailpit accept anything on an open port with
+  // no credentials, so authentication is only configured when a user is given.
+  // Requiring one made every local mail untestable.
   transporter ??= nodemailer.createTransport({
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,
     secure: env.SMTP_SECURE,
-    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+    ...(env.SMTP_USER ? { auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } } : {}),
   });
 
   return transporter;
