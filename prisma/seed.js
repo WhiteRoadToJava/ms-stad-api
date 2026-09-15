@@ -7,9 +7,21 @@
  * after-RUT figures, so a home cleaning advertised at 21 kr/kvm is stored here
  * as 42 kr/kvm and the 50 % deduction is applied at calculation time.
  */
+// Node does not read .env on its own, and this file runs outside the server,
+// so it never passes through src/config/env.js. The Prisma CLI loads .env for
+// commands like `db push`, which is why those work without this line.
+import 'dotenv/config';
+
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { DEFAULT_SLOT_CAPACITY, TIME_SLOTS } from '../src/config/pricing.js';
+
+if (!process.env.DATABASE_URL) {
+  console.error(
+    'DATABASE_URL is missing. Copy .env.example to .env and set your connection string.',
+  );
+  process.exit(1);
+}
 
 const prisma = new PrismaClient();
 
