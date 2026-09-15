@@ -355,10 +355,13 @@ async function seedAdmin() {
       name: 'MA Städ',
       role: 'ADMIN',
       passwordHash: await bcrypt.hash(password, 12),
+      // The default password is written in this file, so the dashboard makes
+      // the first login replace it before anything else can be done.
+      mustChangePassword: !process.env.SEED_ADMIN_PASSWORD,
     },
   });
 
-  console.log(`Admin ready: ${email} (change the password after first login)`);
+  console.log(`Admin ready: ${email} (you will be asked to set a new password)`);
 }
 
 /** Opens bookable slots for the next 60 days, skipping Sundays. */
