@@ -49,6 +49,12 @@ export const bookingSchema = z.object({
   extraKeys: z.array(trimmed(60)).max(10).default([]),
   applyRut: z.boolean().default(true),
   timeSlotId: z.coerce.number().int().positive().optional(),
+  /**
+   * The total shown on screen, in ore. Not used to price anything: the server
+   * recalculates and refuses the booking if the two disagree, so a customer is
+   * never invoiced a figure they were not shown.
+   */
+  quotedTotal: z.coerce.number().int().min(0).optional(),
   floor: trimmed(20).optional(),
   hasElevator: z.boolean().optional(),
   hasPets: z.boolean().optional(),
