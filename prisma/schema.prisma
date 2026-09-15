@@ -282,6 +282,9 @@ model Admin {
   name         String    @db.VarChar(120)
   role         AdminRole @default(STAFF)
   isActive     Boolean   @default(true)
+  // Seeded accounts carry a password that is written down in the repository,
+  // so the dashboard forces a new one before it lets anyone work.
+  mustChangePassword Boolean @default(false)
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
 

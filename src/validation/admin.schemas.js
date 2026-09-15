@@ -1,0 +1,75 @@
+/** Request schemas for the admin area. */
+import { z } from 'zod';
+
+const trimmed = (max) => z.string().trim().min(1).max(max);
+
+export const loginSchema = z.object({
+  email: z.string().trim().email().max(160),
+  password: trimmed(200),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: trimmed(200),
+  // Long rather than complicated: length beats character classes, and the
+  // office will otherwise write the clever one on a note by the screen.
+  newPassword: z.string().min(12).max(200),
+});
+
+export const listQuerySchema = z.object({
+  status: z.string().trim().max(20).optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  search: z.string().trim().max(80).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  perPage: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export const idParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
+export const updateBookingSchema = z
+  .object({
+    status: z.enum(['NEW', 'CONFIRMED', 'SCHEDULED', 'COMPLETED', 'CANCELLED']).optional(),
+    internalNotes: z.string().trim().max(2000).nullable().optional(),
+    scheduledDate: z.coerce.date().nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
+
+export const updateQuoteSchema = z
+  .object({
+    status: z.enum(['NEW', 'CONTACTED', 'SENT', 'WON', 'LOST']).optional(),
+    // Kronor in, ore stored: staff type 2500, never 250000.
+    quotedAmount: z.coerce.number().int().min(0).max(10_000_000).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
+
+export const updateCallbackSchema = z.object({
+  handled: z.boolean(),
+});
+
+export const updateServiceSchema = z
+  .object({
+    pricePerSqm: z.coerce.number().int().min(0).nullable().optional(),
+    minPrice: z.coerce.number().int().min(0).nullable().optional(),
+    hourlyRate: z.coerce.number().int().min(0).nullable().optional(),
+    packagePrice: z.coerce.number().int().min(0).nullable().optional(),
+    isActive: z.boolean().optional(),
+    isPopular: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
+
+export const createSlotsSchema = z.object({
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  capacity: z.coerce.number().int().min(1).max(20).default(2),
+  /** 0 is Sunday, matching Date.getUTCDay(). Defaults to Monday–Saturday. */
+  weekdays: z.array(z.coerce.number().int().min(0).max(6)).default([1, 2, 3, 4, 5, 6]),
+});
+
+export const updateSlotSchema = z
+  .object({
+    capacity: z.coerce.number().int().min(0).max(20).optional(),
+    isBlocked: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
