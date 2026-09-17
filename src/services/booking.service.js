@@ -67,6 +67,28 @@ export const createBooking = async (input) => {
     );
   }
 
+  // The price list can change between the page being loaded and the booking
+  // being sent, and the site ships its own copy of it for instant feedback.
+  // Charging the recalculated figure silently would mean invoicing a customer
+  // something they never saw, so the booking is refused and the client is told
+  // what the price is now.
+  if (
+    input.quotedTotal !== undefined &&
+    input.quotedTotal !== breakdown.totalPrice
+  ) {
+    throw new AppError(409, 'The price has changed since the page was loaded', 'PRICE_CHANGED', {
+      quotedTotal: input.quotedTotal,
+      currentTotal: breakdown.totalPrice,
+      breakdown: {
+        basePrice: breakdown.basePrice,
+        extrasPrice: breakdown.extrasPrice,
+        grossPrice: breakdown.grossPrice,
+        rutDeduction: breakdown.rutDeduction,
+        totalPrice: breakdown.totalPrice,
+      },
+    });
+  }
+
   const result = await prisma.$transaction(async (tx) => {
     const customer = await upsertCustomer(tx, input.customer);
 
