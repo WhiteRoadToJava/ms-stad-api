@@ -144,24 +144,37 @@ const applySchemaSql = async () => {
  * with anything that could identify the database removed first. Prisma's
  * messages name the host, the user and sometimes the full connection string.
  */
+/**
+ * The human part of an error: its message with the stack removed. Prisma puts
+ * the useful sentence at the end of the message, after the call it failed on.
+ */
+const messageOf = (error) =>
+  String(error?.message ?? error)
+    .split('\n')
+    .filter((line) => !/^\s*at\s/.test(line))
+    .join('\n');
+
 const redact = (text) =>
   text
     .replace(/mysql:\/\/\S+/gi, 'mysql://[redacted]')
     .replace(/[\w.-]+@[\w.-]+/g, '[redacted]')
     .replace(/`[^`]*`/g, '`[redacted]`')
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, '[redacted]')
-    // 'user'@'host' in MySQL's access errors. No whitespace inside, so an
-    // apostrophe in ordinary prose such as "Can't" is left alone.
-    .replace(/'[^'\s]*'/g, "'[redacted]'")
+    // 'user'@'host' in MySQL's access errors. Only that pair: other quoted
+    // words, such as the name of the limit that was hit, are what we need.
+    .replace(/'[^'\s]*'@'[^'\s]*'/g, "'[redacted]'@'[redacted]'")
     // Hostinger prefixes every database and user name with the account id.
     .replace(/\bu\d{6,}_\w+/g, '[redacted]')
     .replace(/\b[\w-]+(?:\.[\w-]+)+\.(?:io|com|net|se|org)\b/gi, '[redacted]')
+    // The account's home directory carries its id.
+    .replace(/\/home\/[^/\s]+/g, '/home/[redacted]')
     .trim()
     .split('\n')
-    .filter(Boolean)
-    .slice(-3)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^at\s/.test(line))
+    .slice(-4)
     .join(' | ')
-    .slice(-300);
+    .slice(-400);
 
 export const runDatabaseSetup = async () => {
   Object.assign(setupState, {
@@ -213,15 +226,23 @@ export const runDatabaseSetup = async () => {
   setupState.step = 'seed';
   console.log('[setup] seeding');
 
-  const seed = await run(NODE, ['prisma/seed.js']);
-
-  if (seed.code !== 0) {
+  try {
+    // In-process, through the server's own Prisma client. A separate Node
+    // process brought its own engine and connection pool, and failed on its
+    // first write under the host's per-user limits.
+    const { runSeed } = await import('../../prisma/seed.js');
+    await runSeed(prisma);
+  } catch (error) {
     Object.assign(setupState, {
       state: 'failed',
       finishedAt: new Date().toISOString(),
-      error: { step: 'seed', code: describeFailure(seed), detail: redact(seed.output) },
+      error: {
+        step: 'seed',
+        code: error?.code ?? error?.meta?.code ?? error?.name ?? 'SEED_FAILED',
+        detail: redact(messageOf(error)),
+      },
     });
-    console.error('[setup] seeding failed');
+    console.error('[setup] seeding failed', error);
     return;
   }
 
