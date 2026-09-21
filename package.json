@@ -17,7 +17,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
-    "db:seed": "node prisma/seed.js"
+    "db:seed": "node prisma/seed.js",
+    "db:export-sql": "node scripts/export-schema-sql.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
