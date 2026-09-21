@@ -1,24 +1,101 @@
 /**
- * One-off database setup, run by the server itself on start.
+ * One-off database setup, run by the server itself.
  *
- * The hosting plan gives no shell, and reaching the production database from
- * a laptop means opening it to the internet and risking a command aimed at the
+ * The hosting plan gives no shell, and reaching the production database from a
+ * laptop means opening it to the internet and risking a command aimed at the
  * wrong database. So the server does it: set DB_SETUP_ON_START=true in hPanel,
- * redeploy, open the site once, then remove the variable and redeploy again.
+ * redeploy, watch /api/health until setup reports done, then remove the
+ * variable and redeploy again.
  *
- * Both steps are safe to repeat. `db push` refuses changes that would drop
- * data, and the seed only creates what is missing and never overwrites the
- * prices staff have edited.
+ * It runs in the background, after the server is already listening. The host
+ * kills an app that does not open its port quickly, and creating the tables
+ * and seeding can take longer than that allows.
+ *
+ * Both steps are safe to repeat and to interrupt. `db push` refuses changes
+ * that would drop data, and the seed only creates what is missing, so if the
+ * process is stopped half way the next start simply finishes the job.
  */
-import { execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
-export const runDatabaseSetup = () => {
-  console.log('[setup] DB_SETUP_ON_START is set, preparing the database');
+/** Read by the health check so progress is visible from a browser. */
+export const setupState = {
+  state: 'idle',
+  step: null,
+  startedAt: null,
+  finishedAt: null,
+  error: null,
+};
+
+/**
+ * Runs a command and resolves with its exit code. Output goes to the server
+ * log; only a Prisma error code is kept for the public health response, since
+ * the raw output can contain the database host and user.
+ */
+const run = (command, args) =>
+  new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let output = '';
+
+    const collect = (chunk) => {
+      const text = chunk.toString();
+      output += text;
+      process.stdout.write(text);
+    };
+
+    child.stdout.on('data', collect);
+    child.stderr.on('data', collect);
+
+    child.on('error', (error) => resolve({ code: 1, output: String(error) }));
+    child.on('close', (code) => resolve({ code, output }));
+  });
+
+const prismaCode = (output) => output.match(/\bP\d{4}\b/)?.[0] ?? null;
+
+export const runDatabaseSetup = async () => {
+  Object.assign(setupState, {
+    state: 'running',
+    step: 'schema',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    error: null,
+  });
+
+  console.log('[setup] creating tables');
 
   // Without --accept-data-loss Prisma stops instead of dropping a column, which
-  // is the behaviour we want on a database holding real bookings.
-  execSync('npx prisma db push --skip-generate', { stdio: 'inherit' });
-  execSync('node prisma/seed.js', { stdio: 'inherit' });
+  // is what we want on a database that may already hold real bookings.
+  const schema = await run('npx', ['prisma', 'db', 'push', '--skip-generate']);
+
+  if (schema.code !== 0) {
+    Object.assign(setupState, {
+      state: 'failed',
+      finishedAt: new Date().toISOString(),
+      error: { step: 'schema', code: prismaCode(schema.output) ?? `exit ${schema.code}` },
+    });
+    console.error('[setup] creating tables failed');
+    return;
+  }
+
+  setupState.step = 'seed';
+  console.log('[setup] seeding');
+
+  const seed = await run('node', ['prisma/seed.js']);
+
+  if (seed.code !== 0) {
+    Object.assign(setupState, {
+      state: 'failed',
+      finishedAt: new Date().toISOString(),
+      error: { step: 'seed', code: prismaCode(seed.output) ?? `exit ${seed.code}` },
+    });
+    console.error('[setup] seeding failed');
+    return;
+  }
+
+  Object.assign(setupState, {
+    state: 'done',
+    step: null,
+    finishedAt: new Date().toISOString(),
+  });
 
   console.log('[setup] Database ready. Remove DB_SETUP_ON_START and redeploy.');
 };
