@@ -16,7 +16,9 @@
  * process is stopped half way the next start simply finishes the job.
  */
 import { spawn } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { prisma } from './prisma.js';
 
 /**
  * Commands are run through the exact Node binary that is running this server,
@@ -71,6 +73,96 @@ const prismaCode = (output) => output.match(/\bP\d{4}\b/)?.[0] ?? null;
 const describeFailure = (result) =>
   result.spawnError ?? prismaCode(result.output) ?? `exit ${result.code}`;
 
+/**
+ * The committed SQL for an empty database, generated on a developer machine by
+ * `npm run db:export-sql`. Preferred over `prisma db push` because it runs
+ * through the query engine the server already uses, while `db push` needs the
+ * separate schema engine, which the hosting plan would not run.
+ */
+const SCHEMA_SQL = new URL('../../prisma/schema.sql', import.meta.url);
+
+const readSchemaSql = () => {
+  const buffer = readFileSync(SCHEMA_SQL);
+
+  // A file redirected with `>` in Windows PowerShell arrives as UTF-16 with a
+  // byte order mark. Accept it rather than fail on invisible bytes.
+  const text =
+    buffer[0] === 0xff && buffer[1] === 0xfe
+      ? buffer.toString('utf16le')
+      : buffer.toString('utf8');
+
+  return text.replace(/^\uFEFF/, '');
+};
+
+/** Splits Prisma's generated script into statements, dropping comment lines. */
+const splitStatements = (sql) =>
+  sql
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(/;\s*(?:\n|$)/)
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+
+const FOREIGN_KEY = /^ALTER TABLE `([^`]+)` ADD CONSTRAINT `([^`]+)` FOREIGN KEY/i;
+
+const constraintExists = async (table, name) => {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*) AS n FROM information_schema.TABLE_CONSTRAINTS
+     WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ?`,
+    table,
+    name,
+  );
+  return Number(rows[0]?.n ?? 0) > 0;
+};
+
+/**
+ * Applies schema.sql so that running it twice is harmless: tables are created
+ * only if missing, and a foreign key that already exists is skipped. That is
+ * what lets an interrupted setup simply be started again.
+ */
+const applySchemaSql = async () => {
+  const statements = splitStatements(readSchemaSql());
+  let applied = 0;
+
+  for (const statement of statements) {
+    const foreignKey = statement.match(FOREIGN_KEY);
+
+    if (foreignKey && (await constraintExists(foreignKey[1], foreignKey[2]))) continue;
+
+    await prisma.$executeRawUnsafe(
+      statement.replace(/^CREATE TABLE `/i, 'CREATE TABLE IF NOT EXISTS `'),
+    );
+    applied += 1;
+  }
+
+  console.log(`[setup] applied ${applied} of ${statements.length} schema statements`);
+};
+
+/**
+ * Keeps the end of a failed command's output for the public health response,
+ * with anything that could identify the database removed first. Prisma's
+ * messages name the host, the user and sometimes the full connection string.
+ */
+const redact = (text) =>
+  text
+    .replace(/mysql:\/\/\S+/gi, 'mysql://[redacted]')
+    .replace(/[\w.-]+@[\w.-]+/g, '[redacted]')
+    .replace(/`[^`]*`/g, '`[redacted]`')
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, '[redacted]')
+    // 'user'@'host' in MySQL's access errors. No whitespace inside, so an
+    // apostrophe in ordinary prose such as "Can't" is left alone.
+    .replace(/'[^'\s]*'/g, "'[redacted]'")
+    // Hostinger prefixes every database and user name with the account id.
+    .replace(/\bu\d{6,}_\w+/g, '[redacted]')
+    .replace(/\b[\w-]+(?:\.[\w-]+)+\.(?:io|com|net|se|org)\b/gi, '[redacted]')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .slice(-3)
+    .join(' | ')
+    .slice(-300);
+
 export const runDatabaseSetup = async () => {
   Object.assign(setupState, {
     state: 'running',
@@ -82,18 +174,40 @@ export const runDatabaseSetup = async () => {
 
   console.log('[setup] creating tables');
 
-  // Without --accept-data-loss Prisma stops instead of dropping a column, which
-  // is what we want on a database that may already hold real bookings.
-  const schema = await run(NODE, [PRISMA_CLI, 'db', 'push', '--skip-generate']);
+  if (existsSync(SCHEMA_SQL)) {
+    try {
+      await applySchemaSql();
+    } catch (error) {
+      Object.assign(setupState, {
+        state: 'failed',
+        finishedAt: new Date().toISOString(),
+        error: {
+          step: 'schema',
+          code: error?.code ?? error?.meta?.code ?? 'SQL_FAILED',
+          detail: redact(String(error?.message ?? error)),
+        },
+      });
+      console.error('[setup] creating tables failed', error);
+      return;
+    }
+  } else {
+    // Fallback when no schema.sql has been committed. Without
+    // --accept-data-loss Prisma stops instead of dropping a column.
+    const schema = await run(NODE, [PRISMA_CLI, 'db', 'push', '--skip-generate']);
 
-  if (schema.code !== 0) {
-    Object.assign(setupState, {
-      state: 'failed',
-      finishedAt: new Date().toISOString(),
-      error: { step: 'schema', code: describeFailure(schema) },
-    });
-    console.error('[setup] creating tables failed');
-    return;
+    if (schema.code !== 0) {
+      Object.assign(setupState, {
+        state: 'failed',
+        finishedAt: new Date().toISOString(),
+        error: {
+          step: 'schema',
+          code: describeFailure(schema),
+          detail: redact(schema.output),
+        },
+      });
+      console.error('[setup] creating tables failed');
+      return;
+    }
   }
 
   setupState.step = 'seed';
@@ -105,7 +219,7 @@ export const runDatabaseSetup = async () => {
     Object.assign(setupState, {
       state: 'failed',
       finishedAt: new Date().toISOString(),
-      error: { step: 'seed', code: describeFailure(seed) },
+      error: { step: 'seed', code: describeFailure(seed), detail: redact(seed.output) },
     });
     console.error('[setup] seeding failed');
     return;
