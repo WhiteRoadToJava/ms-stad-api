@@ -1,6 +1,14 @@
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { prisma } from './config/prisma.js';
+import { runDatabaseSetup } from './config/databaseSetup.js';
+
+// Runs before the server accepts requests, so nobody reaches an empty database.
+// A failure here stops the process: a half prepared database is worse than a
+// site that is visibly down.
+if (process.env.DB_SETUP_ON_START === 'true') {
+  runDatabaseSetup();
+}
 
 const app = createApp();
 
