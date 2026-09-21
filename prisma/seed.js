@@ -314,9 +314,13 @@ async function seedServices() {
   for (const service of services) {
     const { slug, sv, en, extras, ...data } = service;
 
+    // Prices belong to the dashboard once the site is live. On a second run the
+    // structure is refreshed but the amounts are left exactly as staff set them.
+    const { pricePerSqm, minPrice, hourlyRate, packagePrice, ...structure } = data;
+
     const record = await prisma.service.upsert({
       where: { slug },
-      update: data,
+      update: structure,
       create: { slug, ...data },
     });
 
@@ -334,7 +338,9 @@ async function seedServices() {
     for (const [index, extra] of (extras ?? []).entries()) {
       await prisma.serviceExtra.upsert({
         where: { serviceId_key: { serviceId: record.id, key: extra.key } },
-        update: { ...extra, sortOrder: index },
+        // Same rule for add-ons: labels and order follow this file, the price
+        // follows whatever was last saved in the dashboard.
+        update: { nameSv: extra.nameSv, nameEn: extra.nameEn, sortOrder: index },
         create: { serviceId: record.id, ...extra, sortOrder: index },
       });
     }
