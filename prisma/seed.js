@@ -373,7 +373,7 @@ async function seedAdmin() {
 /** Opens bookable slots for the next 60 days, skipping Sundays. */
 async function seedTimeSlots(days = 60) {
   const today = new Date();
-  let created = 0;
+  const rows = [];
 
   for (let offset = 1; offset <= days; offset += 1) {
     const date = new Date(today);
@@ -383,16 +383,16 @@ async function seedTimeSlots(days = 60) {
     if (date.getUTCDay() === 0) continue;
 
     for (const slot of TIME_SLOTS) {
-      await prisma.timeSlot.upsert({
-        where: { date_startTime: { date, startTime: slot.startTime } },
-        update: {},
-        create: { date, ...slot, capacity: DEFAULT_SLOT_CAPACITY },
-      });
-      created += 1;
+      rows.push({ date, ...slot, capacity: DEFAULT_SLOT_CAPACITY });
     }
   }
 
-  console.log(`Ensured ${created} time slots`);
+  // One insert instead of one round trip per slot. On shared hosting the old
+  // loop made about 150 sequential queries and took long enough to matter.
+  // skipDuplicates leaves existing slots, and their bookings, untouched.
+  const result = await prisma.timeSlot.createMany({ data: rows, skipDuplicates: true });
+
+  console.log(`Created ${result.count} of ${rows.length} time slots`);
 }
 
 async function seedSettings() {
