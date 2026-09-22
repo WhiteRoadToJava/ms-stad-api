@@ -7,23 +7,22 @@
  * after-RUT figures, so a home cleaning advertised at 21 kr/kvm is stored here
  * as 42 kr/kvm and the 50 % deduction is applied at calculation time.
  */
-// Node does not read .env on its own, and this file runs outside the server,
-// so it never passes through src/config/env.js. The Prisma CLI loads .env for
+// Node does not read .env on its own, and when run from the command line this
+// file never passes through src/config/env.js. The Prisma CLI loads .env for
 // commands like `db push`, which is why those work without this line.
 import 'dotenv/config';
 
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { pathToFileURL } from 'node:url';
 import { DEFAULT_SLOT_CAPACITY, TIME_SLOTS } from '../src/config/pricing.js';
 
-if (!process.env.DATABASE_URL) {
-  console.error(
-    'DATABASE_URL is missing. Copy .env.example to .env and set your connection string.',
-  );
-  process.exit(1);
-}
-
-const prisma = new PrismaClient();
+/**
+ * The client every step below uses. Set by runSeed(), so the same code works
+ * from the command line with a client of its own and inside the server with
+ * the server's existing client.
+ */
+let prisma;
 
 const kr = (kronor) => kronor * 100;
 
@@ -417,16 +416,41 @@ async function seedSettings() {
   console.log(`Seeded ${Object.keys(settings).length} settings`);
 }
 
-async function main() {
+/**
+ * Seeds the database through the client it is given.
+ *
+ * On the host the server calls this in-process with its own client. Running it
+ * as a second Node process meant a second Prisma engine and a second
+ * connection pool, and shared hosting limits processes, memory and concurrent
+ * database connections per user: the second process failed on its first write
+ * while the server's own queries kept working.
+ */
+export async function runSeed(client) {
+  prisma = client;
+
   await seedServices();
   await seedAdmin();
   await seedTimeSlots();
   await seedSettings();
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
+/** `npm run db:seed` on a developer machine. */
+const isCommandLine = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isCommandLine) {
+  if (!process.env.DATABASE_URL) {
+    console.error(
+      'DATABASE_URL is missing. Copy .env.example to .env and set your connection string.',
+    );
     process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+  }
+
+  const client = new PrismaClient();
+
+  runSeed(client)
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(() => client.$disconnect());
+}
