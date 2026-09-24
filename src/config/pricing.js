@@ -47,4 +47,13 @@ export const TIME_SLOTS = [
 ];
 
 /** How many teams can work one slot before it is shown as fully booked. */
-export const DEFAULT_SLOT_CAPACITY = 2;
+export const DEFAULT_SLOT_CAPACITY = 1;
+
+/**
+ * How far ahead the calendar stays open. The server tops this up by itself, so
+ * the booking form can never run out of dates while nobody is watching.
+ */
+export const OPEN_SLOTS_DAYS = 60;
+
+/** Weekdays slots are opened on. 0 is Sunday, matching Date.getUTCDay(). */
+export const OPEN_SLOTS_WEEKDAYS = [1, 2, 3, 4, 5, 6];

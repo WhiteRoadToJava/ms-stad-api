@@ -1,70 +1,53 @@
 import { Router } from 'express';
-import { prisma } from '../../config/prisma.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { AppError } from '../../utils/AppError.js';
 import { validate } from '../../middleware/validate.js';
-import { TIME_SLOTS } from '../../config/pricing.js';
+import { prisma } from '../../config/prisma.js';
+import {
+  listAllSlots,
+  openSlots,
+  updateSlotRange,
+} from '../../services/availability.service.js';
 import {
   createSlotsSchema,
   idParamSchema,
   listQuerySchema,
+  updateSlotRangeSchema,
   updateSlotSchema,
 } from '../../validation/admin.schemas.js';
 
 export const adminAvailabilityRouter = Router();
-
-const toDateOnly = (value) => {
-  const date = new Date(value);
-  date.setUTCHours(0, 0, 0, 0);
-  return date;
-};
 
 /** Every slot in a range, including full and blocked ones the public never sees. */
 adminAvailabilityRouter.get(
   '/',
   validate({ query: listQuerySchema }),
   asyncHandler(async (req, res) => {
-    const from = toDateOnly(req.query.from ?? Date.now());
-    const to = toDateOnly(req.query.to ?? Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-    const slots = await prisma.timeSlot.findMany({
-      where: { date: { gte: from, lte: to } },
-      orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
-    });
-
+    const slots = await listAllSlots({ from: req.query.from, to: req.query.to });
     res.json({ data: slots });
   }),
 );
 
 /**
- * Opens slots for a date range. The seed only fills the first weeks, so
- * without this the calendar quietly runs out and nobody can book.
+ * Opens slots for a date range. The server keeps sixty days open by itself;
+ * this is for opening a period earlier, or reopening one that was blocked.
  */
 adminAvailabilityRouter.post(
   '/',
   validate({ body: createSlotsSchema }),
   asyncHandler(async (req, res) => {
-    const { capacity, weekdays } = req.body;
-    const from = toDateOnly(req.body.from);
-    const to = toDateOnly(req.body.to);
+    const result = await openSlots(req.body);
+    res.status(201).json({ data: result });
+  }),
+);
 
-    if (to < from) throw AppError.badRequest('The end date is before the start date');
-
-    const rows = [];
-
-    for (let day = new Date(from); day <= to; day.setUTCDate(day.getUTCDate() + 1)) {
-      if (!weekdays.includes(day.getUTCDay())) continue;
-
-      for (const slot of TIME_SLOTS) {
-        rows.push({ date: new Date(day), ...slot, capacity });
-      }
-    }
-
-    // skipDuplicates keeps the call repeatable: running it again over a range
-    // that is already open changes nothing instead of failing.
-    const result = await prisma.timeSlot.createMany({ data: rows, skipDuplicates: true });
-
-    res.status(201).json({ data: { created: result.count, considered: rows.length } });
+/** Holidays, a week off, or a period worked with extra staff. */
+adminAvailabilityRouter.patch(
+  '/range',
+  validate({ body: updateSlotRangeSchema }),
+  asyncHandler(async (req, res) => {
+    const result = await updateSlotRange(req.body);
+    res.json({ data: result });
   }),
 );
 
