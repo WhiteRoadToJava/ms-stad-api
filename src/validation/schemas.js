@@ -48,7 +48,8 @@ export const bookingSchema = z.object({
   frequency: frequencySchema.default('ONCE'),
   extraKeys: z.array(trimmed(60)).max(10).default([]),
   applyRut: z.boolean().default(true),
-  timeSlotId: z.coerce.number().int().positive().optional(),
+  /** The day the customer picked. The hour is agreed when we call. */
+  scheduledDate: z.coerce.date().optional(),
   /**
    * The total shown on screen, in ore. Not used to price anything: the server
    * recalculates and refuses the booking if the two disagree, so a customer is

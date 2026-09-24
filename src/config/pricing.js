@@ -39,21 +39,17 @@ export const FREQUENCY_MULTIPLIER = {
 /** Minimum billable hours for hourly services. */
 export const MIN_BILLABLE_HOURS = 2;
 
-/** Bookable slots offered to customers, generated ahead by the seed script. */
-export const TIME_SLOTS = [
-  { startTime: '08:00', endTime: '12:00' },
-  { startTime: '12:00', endTime: '16:00' },
-  { startTime: '16:00', endTime: '20:00' },
-];
-
-/** How many teams can work one slot before it is shown as fully booked. */
-export const DEFAULT_SLOT_CAPACITY = 1;
+/**
+ * How many cleanings fit in one day. One team, one home per day to start with;
+ * raise it here, or per day from the dashboard, when there are more teams.
+ */
+export const DEFAULT_DAY_CAPACITY = 1;
 
 /**
  * How far ahead the calendar stays open. The server tops this up by itself, so
  * the booking form can never run out of dates while nobody is watching.
  */
-export const OPEN_SLOTS_DAYS = 60;
+export const OPEN_DAYS_AHEAD = 60;
 
-/** Weekdays slots are opened on. 0 is Sunday, matching Date.getUTCDay(). */
-export const OPEN_SLOTS_WEEKDAYS = [1, 2, 3, 4, 5, 6];
+/** Weekdays we open. 0 is Sunday, matching Date.getUTCDay(). */
+export const OPEN_WEEKDAYS = [1, 2, 3, 4, 5, 6];

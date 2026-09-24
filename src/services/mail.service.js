@@ -72,10 +72,12 @@ const layout = (title, rows, footer = '') => `
 const formatDate = (date) =>
   date ? new Intl.DateTimeFormat('sv-SE', { dateStyle: 'full' }).format(date) : 'Ej vald';
 
-export const sendBookingEmails = async ({ booking, service, customer, timeSlot }) => {
-  const when = timeSlot
-    ? `${formatDate(booking.scheduledDate)}, ${timeSlot.startTime}–${timeSlot.endTime}`
-    : 'Vi återkommer med tid';
+export const sendBookingEmails = async ({ booking, service, customer }) => {
+  // The hour is agreed on the phone, so the receipt promises a day and a call,
+  // not a window the office never committed to.
+  const when = booking.scheduledDate
+    ? `${formatDate(booking.scheduledDate)} (vi ringer och bekräftar tiden)`
+    : 'Vi återkommer med datum och tid';
 
   const rows = [
     ['Bokningsnummer', booking.reference],

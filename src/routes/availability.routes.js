@@ -6,12 +6,12 @@ import { listAvailability } from '../services/availability.service.js';
 
 export const availabilityRouter = Router();
 
-/** Slots the customer can still pick, 60 days ahead by default. */
+/** Days the customer can still pick, 60 days ahead by default. */
 availabilityRouter.get(
   '/',
   validate({ query: availabilityQuerySchema }),
   asyncHandler(async (req, res) => {
-    const slots = await listAvailability({ from: req.query.from, to: req.query.to });
-    res.json({ data: slots });
+    const days = await listAvailability({ from: req.query.from, to: req.query.to });
+    res.json({ data: days });
   }),
 );

@@ -89,29 +89,31 @@ export const assignmentsSchema = z.object({
   employeeIds: z.array(z.coerce.number().int().positive()).max(10),
 });
 
-export const createSlotsSchema = z.object({
+export const createDaysSchema = z.object({
   from: z.coerce.date(),
   to: z.coerce.date(),
-  capacity: z.coerce.number().int().min(1).max(20).default(2),
-  /** 0 is Sunday, matching Date.getUTCDay(). Defaults to Monday–Saturday. */
+  capacity: z.coerce.number().int().min(1).max(20).default(1),
+  /** 0 is Sunday, matching Date.getUTCDay(). Defaults to Monday-Saturday. */
   weekdays: z.array(z.coerce.number().int().min(0).max(6)).default([1, 2, 3, 4, 5, 6]),
 });
 
-export const updateSlotRangeSchema = z
+export const updateDayRangeSchema = z
   .object({
     from: z.coerce.date(),
     to: z.coerce.date(),
     capacity: z.coerce.number().int().min(0).max(20).optional(),
     isBlocked: z.boolean().optional(),
+    note: optionalText(200),
   })
   .refine(
     (value) => value.capacity !== undefined || value.isBlocked !== undefined,
     'Nothing to change',
   );
 
-export const updateSlotSchema = z
+export const updateDaySchema = z
   .object({
     capacity: z.coerce.number().int().min(0).max(20).optional(),
     isBlocked: z.boolean().optional(),
+    note: optionalText(200),
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update');

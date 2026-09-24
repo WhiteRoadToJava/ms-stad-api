@@ -1,42 +1,42 @@
 import { Router } from 'express';
+import { prisma } from '../../config/prisma.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { AppError } from '../../utils/AppError.js';
 import { validate } from '../../middleware/validate.js';
-import { prisma } from '../../config/prisma.js';
 import {
-  listAllSlots,
-  openSlots,
-  updateSlotRange,
+  listAllDays,
+  openDays,
+  updateDayRange,
 } from '../../services/availability.service.js';
 import {
-  createSlotsSchema,
+  createDaysSchema,
   idParamSchema,
   listQuerySchema,
-  updateSlotRangeSchema,
-  updateSlotSchema,
+  updateDayRangeSchema,
+  updateDaySchema,
 } from '../../validation/admin.schemas.js';
 
 export const adminAvailabilityRouter = Router();
 
-/** Every slot in a range, including full and blocked ones the public never sees. */
+/** Every day in a range, including full and closed ones the public never sees. */
 adminAvailabilityRouter.get(
   '/',
   validate({ query: listQuerySchema }),
   asyncHandler(async (req, res) => {
-    const slots = await listAllSlots({ from: req.query.from, to: req.query.to });
-    res.json({ data: slots });
+    const days = await listAllDays({ from: req.query.from, to: req.query.to });
+    res.json({ data: days });
   }),
 );
 
 /**
- * Opens slots for a date range. The server keeps sixty days open by itself;
- * this is for opening a period earlier, or reopening one that was blocked.
+ * Opens days in a range. The server keeps sixty days open by itself; this is
+ * for opening a period earlier, or reopening one that was closed.
  */
 adminAvailabilityRouter.post(
   '/',
-  validate({ body: createSlotsSchema }),
+  validate({ body: createDaysSchema }),
   asyncHandler(async (req, res) => {
-    const result = await openSlots(req.body);
+    const result = await openDays(req.body);
     res.status(201).json({ data: result });
   }),
 );
@@ -44,27 +44,27 @@ adminAvailabilityRouter.post(
 /** Holidays, a week off, or a period worked with extra staff. */
 adminAvailabilityRouter.patch(
   '/range',
-  validate({ body: updateSlotRangeSchema }),
+  validate({ body: updateDayRangeSchema }),
   asyncHandler(async (req, res) => {
-    const result = await updateSlotRange(req.body);
+    const result = await updateDayRange(req.body);
     res.json({ data: result });
   }),
 );
 
 adminAvailabilityRouter.patch(
   '/:id',
-  validate({ params: idParamSchema, body: updateSlotSchema }),
+  validate({ params: idParamSchema, body: updateDaySchema }),
   asyncHandler(async (req, res) => {
-    const slot = await prisma.timeSlot.findUnique({ where: { id: req.params.id } });
+    const day = await prisma.availabilityDay.findUnique({ where: { id: req.params.id } });
 
-    if (!slot) throw AppError.notFound('Time slot not found');
+    if (!day) throw AppError.notFound('Day not found');
 
-    if (req.body.capacity !== undefined && req.body.capacity < slot.bookedCount) {
+    if (req.body.capacity !== undefined && req.body.capacity < day.bookedCount) {
       throw AppError.conflict('Capacity cannot be lower than the bookings already taken');
     }
 
-    const updated = await prisma.timeSlot.update({
-      where: { id: slot.id },
+    const updated = await prisma.availabilityDay.update({
+      where: { id: day.id },
       data: req.body,
     });
 

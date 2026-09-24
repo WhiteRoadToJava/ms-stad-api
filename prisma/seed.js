@@ -15,7 +15,7 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { pathToFileURL } from 'node:url';
-import { DEFAULT_SLOT_CAPACITY, TIME_SLOTS } from '../src/config/pricing.js';
+import { DEFAULT_DAY_CAPACITY, OPEN_DAYS_AHEAD, OPEN_WEEKDAYS } from '../src/config/pricing.js';
 
 /**
  * The client every step below uses. Set by runSeed(), so the same code works
@@ -369,8 +369,8 @@ async function seedAdmin() {
   console.log(`Admin ready: ${email} (you will be asked to set a new password)`);
 }
 
-/** Opens bookable slots for the next 60 days, skipping Sundays. */
-async function seedTimeSlots(days = 60) {
+/** Opens bookable days for the coming weeks, skipping Sundays. */
+async function seedDays(days = OPEN_DAYS_AHEAD) {
   const today = new Date();
   const rows = [];
 
@@ -379,19 +379,15 @@ async function seedTimeSlots(days = 60) {
     date.setUTCDate(today.getUTCDate() + offset);
     date.setUTCHours(0, 0, 0, 0);
 
-    if (date.getUTCDay() === 0) continue;
+    if (!OPEN_WEEKDAYS.includes(date.getUTCDay())) continue;
 
-    for (const slot of TIME_SLOTS) {
-      rows.push({ date, ...slot, capacity: DEFAULT_SLOT_CAPACITY });
-    }
+    rows.push({ date, capacity: DEFAULT_DAY_CAPACITY });
   }
 
-  // One insert instead of one round trip per slot. On shared hosting the old
-  // loop made about 150 sequential queries and took long enough to matter.
-  // skipDuplicates leaves existing slots, and their bookings, untouched.
-  const result = await prisma.timeSlot.createMany({ data: rows, skipDuplicates: true });
+  // skipDuplicates leaves existing days, and their bookings, untouched.
+  const result = await prisma.availabilityDay.createMany({ data: rows, skipDuplicates: true });
 
-  console.log(`Created ${result.count} of ${rows.length} time slots`);
+  console.log(`Created ${result.count} of ${rows.length} bookable days`);
 }
 
 async function seedSettings() {
@@ -430,7 +426,7 @@ export async function runSeed(client) {
 
   await seedServices();
   await seedAdmin();
-  await seedTimeSlots();
+  await seedDays();
   await seedSettings();
 }
 
