@@ -190,11 +190,41 @@ model BookingExtra {
 // Availability: one row per bookable slot, capacity = number of teams free.
 // ---------------------------------------------------------------------------
 
+/**
+ * A day that can be booked.
+ *
+ * Replaces the old three fixed windows. Customers pick a date and we agree the
+ * hour when we call to confirm, which is how the work is actually planned: one
+ * cleaning fills a day, and a four hour window on the website was a promise
+ * nobody had made.
+ *
+ * capacity is how many cleanings fit in the day, so it can be raised for a day
+ * with extra staff without changing anything else.
+ */
+model AvailabilityDay {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @unique @db.Date
+  capacity    Int      @default(1)
+  bookedCount Int      @default(0)
+  isBlocked   Boolean  @default(false)
+  // Why a day is closed: "semester", "utbildning". Only staff ever see it.
+  note        String?  @db.VarChar(200)
+  createdAt   DateTime @default(now())
+
+  @@index([date, isBlocked])
+  @@map("availability_days")
+}
+
+/**
+ * The old fixed windows, kept only so the existing table and the timeSlotId
+ * column on bookings stay described. Nothing writes to it any more, and the
+ * booking flow ignores it entirely.
+ */
 model TimeSlot {
   id          Int      @id @default(autoincrement())
   date        DateTime @db.Date
-  startTime   String   @db.VarChar(5) // "08:00"
-  endTime     String   @db.VarChar(5) // "12:00"
+  startTime   String   @db.VarChar(5)
+  endTime     String   @db.VarChar(5)
   capacity    Int      @default(1)
   bookedCount Int      @default(0)
   isBlocked   Boolean  @default(false)

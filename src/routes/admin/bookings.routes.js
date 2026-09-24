@@ -15,7 +15,6 @@ export const adminBookingsRouter = Router();
 const include = {
   customer: true,
   service: { include: { translations: { where: { locale: 'sv' } } } },
-  timeSlot: true,
   extras: true,
   assignments: { include: { employee: true } },
 };
@@ -83,17 +82,10 @@ adminBookingsRouter.patch(
     if (!existing) throw AppError.notFound('Booking not found');
 
     const booking = await prisma.$transaction(async (tx) => {
-      // Cancelling frees the slot again. Without this the day slowly fills up
-      // with places nobody is coming to.
-      if (
-        req.body.status === 'CANCELLED' &&
-        existing.status !== 'CANCELLED' &&
-        existing.timeSlotId
-      ) {
-        await tx.timeSlot.updateMany({
-          where: { id: existing.timeSlotId, bookedCount: { gt: 0 } },
-          data: { bookedCount: { decrement: 1 } },
-        });
+      // Cancelling frees the day again. Without this the calendar slowly fills
+      // up with dates nobody is coming to.
+      if (req.body.status === 'CANCELLED' && existing.status !== 'CANCELLED') {
+        await releaseDay(tx, existing.scheduledDate);
       }
 
       return tx.booking.update({ where: { id: existing.id }, data: req.body, include });
