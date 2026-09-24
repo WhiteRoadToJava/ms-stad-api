@@ -115,6 +115,21 @@ CREATE TABLE `booking_extras` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `availability_days` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `date` DATE NOT NULL,
+    `capacity` INTEGER NOT NULL DEFAULT 1,
+    `bookedCount` INTEGER NOT NULL DEFAULT 0,
+    `isBlocked` BOOLEAN NOT NULL DEFAULT false,
+    `note` VARCHAR(200) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    UNIQUE INDEX `availability_days_date_key`(`date`),
+    INDEX `availability_days_date_isBlocked_idx`(`date`, `isBlocked`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `time_slots` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `date` DATE NOT NULL,
