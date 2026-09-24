@@ -4,6 +4,7 @@ import { asyncHandler } from '../../utils/asyncHandler.js';
 import { AppError } from '../../utils/AppError.js';
 import { validate } from '../../middleware/validate.js';
 import {
+  assignmentsSchema,
   idParamSchema,
   listQuerySchema,
   updateBookingSchema,
@@ -16,6 +17,7 @@ const include = {
   service: { include: { translations: { where: { locale: 'sv' } } } },
   timeSlot: true,
   extras: true,
+  assignments: { include: { employee: true } },
 };
 
 adminBookingsRouter.get(
@@ -98,5 +100,50 @@ adminBookingsRouter.patch(
     });
 
     res.json({ data: booking });
+  }),
+);
+
+/**
+ * Sets who is going to a booking, replacing whoever was on it.
+ *
+ * Sending the whole list rather than adding and removing one at a time keeps
+ * the dashboard simple and makes the request idempotent: pressing save twice
+ * leaves the same three people on the job.
+ */
+adminBookingsRouter.put(
+  '/:id/assignments',
+  validate({ params: idParamSchema, body: assignmentsSchema }),
+  asyncHandler(async (req, res) => {
+    const booking = await prisma.booking.findUnique({ where: { id: req.params.id } });
+
+    if (!booking) throw AppError.notFound('Booking not found');
+
+    const employeeIds = [...new Set(req.body.employeeIds)];
+
+    if (employeeIds.length > 0) {
+      const found = await prisma.employee.count({
+        where: { id: { in: employeeIds }, isActive: true },
+      });
+
+      // An inactive or unknown id would create an assignment nobody can see in
+      // the dashboard, so the whole request is refused instead.
+      if (found !== employeeIds.length) {
+        throw AppError.badRequest('One of the employees does not exist or has left');
+      }
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.bookingAssignment.deleteMany({ where: { bookingId: booking.id } });
+
+      if (employeeIds.length > 0) {
+        await tx.bookingAssignment.createMany({
+          data: employeeIds.map((employeeId) => ({ bookingId: booking.id, employeeId })),
+        });
+      }
+
+      return tx.booking.findUnique({ where: { id: booking.id }, include });
+    });
+
+    res.json({ data: updated });
   }),
 );

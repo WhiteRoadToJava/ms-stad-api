@@ -3,6 +3,13 @@ import { z } from 'zod';
 
 const trimmed = (max) => z.string().trim().min(1).max(max);
 
+/** Optional text that also accepts the empty string a blank input sends. */
+const optionalText = (max) =>
+  z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    trimmed(max).optional(),
+  );
+
 export const loginSchema = z.object({
   email: z.string().trim().email().max(160),
   password: trimmed(200),
@@ -58,6 +65,29 @@ export const updateServiceSchema = z
     isPopular: z.boolean().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
+
+export const employeeSchema = z.object({
+  name: trimmed(120),
+  email: optionalText(160),
+  phone: optionalText(40),
+  // Hex colour, so a day's schedule can be read without reading every name.
+  colour: z
+    .string()
+    .trim()
+    .regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value such as #124559')
+    .optional(),
+  notes: z.string().trim().max(2000).optional(),
+});
+
+export const updateEmployeeSchema = employeeSchema
+  .partial()
+  .extend({ isActive: z.boolean().optional() })
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
+
+/** The full set of people on a booking, replacing whoever was on it before. */
+export const assignmentsSchema = z.object({
+  employeeIds: z.array(z.coerce.number().int().positive()).max(10),
+});
 
 export const createSlotsSchema = z.object({
   from: z.coerce.date(),

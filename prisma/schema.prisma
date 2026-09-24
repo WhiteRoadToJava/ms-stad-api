@@ -164,6 +164,7 @@ model Booking {
   service  Service        @relation(fields: [serviceId], references: [id])
   timeSlot TimeSlot?      @relation(fields: [timeSlotId], references: [id])
   extras   BookingExtra[]
+  assignments BookingAssignment[]
 
   @@index([status, scheduledDate])
   @@index([createdAt])
@@ -273,6 +274,52 @@ model JobApplication {
 enum AdminRole {
   ADMIN
   STAFF
+}
+
+/**
+ * Someone who does the cleaning.
+ *
+ * Kept apart from Admin on purpose: an employee is a person on a job, not an
+ * account that can sign in. Most cleaners will never open the dashboard, and
+ * the ones who do get an Admin row as well.
+ */
+model Employee {
+  id       Int     @id @default(autoincrement())
+  name     String  @db.VarChar(120)
+  email    String? @db.VarChar(160)
+  phone    String? @db.VarChar(40)
+  // Shown against the name in the schedule, so a day can be read at a glance.
+  colour   String  @default("#124559") @db.VarChar(9)
+  notes    String? @db.Text
+  // Never deleted: an old booking has to keep showing who actually went.
+  isActive Boolean @default(true)
+
+  assignments BookingAssignment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("employees")
+}
+
+/**
+ * Who is going to a booking. A join table rather than a column on Booking,
+ * because two people are often sent together, and because adding a column to
+ * a live table is exactly what this hosting plan makes hard.
+ */
+model BookingAssignment {
+  id Int @id @default(autoincrement())
+
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingId  Int
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  employeeId Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([bookingId, employeeId])
+  @@index([employeeId])
+  @@map("booking_assignments")
 }
 
 model Admin {
