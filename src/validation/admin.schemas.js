@@ -67,6 +67,18 @@ export const createSlotsSchema = z.object({
   weekdays: z.array(z.coerce.number().int().min(0).max(6)).default([1, 2, 3, 4, 5, 6]),
 });
 
+export const updateSlotRangeSchema = z
+  .object({
+    from: z.coerce.date(),
+    to: z.coerce.date(),
+    capacity: z.coerce.number().int().min(0).max(20).optional(),
+    isBlocked: z.boolean().optional(),
+  })
+  .refine(
+    (value) => value.capacity !== undefined || value.isBlocked !== undefined,
+    'Nothing to change',
+  );
+
 export const updateSlotSchema = z
   .object({
     capacity: z.coerce.number().int().min(0).max(20).optional(),
