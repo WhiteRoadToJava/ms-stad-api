@@ -1,0 +1,45 @@
+# Runs on every pull request, and on dev and main directly.
+#
+# The point is the pull request: a failing test blocks the merge button, so a
+# change that breaks the pricing engine cannot reach the branch Hostinger
+# deploys from. Three bugs in that engine reached production before it had
+# tests, and one of them charged customers a different price than the site had
+# shown them.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # Caches ~/.npm between runs; npm ci still installs from scratch.
+          cache: npm
+
+      # ci rather than install: it installs exactly what package-lock.json
+      # says, so a run here cannot silently use a different version than a
+      # deploy does.
+      - run: npm ci
+
+      - run: npm test
+
+      # The schema is the source of the SQL that creates the production
+      # tables, so a schema that no longer parses has to fail here rather
+      # than at deploy time.
+      - name: Validate the Prisma schema
+        # validate parses the schema and never connects, but it still insists
+        # on the variable being set, so a placeholder stands in for it.
+        env:
+          DATABASE_URL: mysql://ci:ci@localhost:3306/ci
+        run: npx prisma validate
