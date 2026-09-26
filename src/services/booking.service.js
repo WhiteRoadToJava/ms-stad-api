@@ -8,7 +8,7 @@
 import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import { buildReference } from '../utils/reference.js';
-import { reserveSlot } from './availability.service.js';
+import { reserveDay } from './availability.service.js';
 import { calculatePrice } from './pricing.service.js';
 
 const loadService = async (slug) => {
@@ -93,10 +93,9 @@ export const createBooking = async (input) => {
     const customer = await upsertCustomer(tx, input.customer);
 
     // Reserving inside the transaction means a failed booking never leaves a
-    // slot counted as taken.
-    const timeSlot = input.timeSlotId
-      ? await reserveSlot(tx, input.timeSlotId)
-      : null;
+    // day counted as taken. A booking without a date is fine: the customer
+    // asked us to suggest one, and nothing is held until we agree it.
+    if (input.scheduledDate) await reserveDay(tx, input.scheduledDate);
 
     const booking = await tx.booking.create({
       data: {
@@ -109,8 +108,7 @@ export const createBooking = async (input) => {
         floor: input.floor,
         hasElevator: input.hasElevator,
         hasPets: input.hasPets,
-        scheduledDate: timeSlot?.date ?? null,
-        timeSlotId: timeSlot?.id ?? null,
+        scheduledDate: input.scheduledDate ?? null,
         basePrice: breakdown.basePrice,
         extrasPrice: breakdown.extrasPrice,
         grossPrice: breakdown.grossPrice,
@@ -131,7 +129,7 @@ export const createBooking = async (input) => {
       include: { extras: true },
     });
 
-    return { booking, customer, timeSlot };
+    return { booking, customer };
   });
 
   return { ...result, service, breakdown };

@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { prisma } from './config/prisma.js';
 import { runDatabaseSetup } from './config/databaseSetup.js';
+import { ensureUpcomingDays } from './services/availability.service.js';
 
 const app = createApp();
 
@@ -12,7 +13,12 @@ const server = app.listen(env.PORT, () => {
   // for as long as the seed took, and the host treated the app as dead.
   if (process.env.DB_SETUP_ON_START === 'true') {
     runDatabaseSetup().catch((error) => console.error('[setup] crashed', error));
+    return;
   }
+
+  // Tops the calendar up to sixty days ahead, at most once a day. A failure
+  // here must not stop the server: an older calendar still takes bookings.
+  ensureUpcomingDays().catch((error) => console.error('[days] top-up failed', error));
 });
 
 /** Closes the HTTP server and the database pool before the process exits. */

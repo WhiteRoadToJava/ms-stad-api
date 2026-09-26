@@ -115,6 +115,21 @@ CREATE TABLE `booking_extras` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `availability_days` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `date` DATE NOT NULL,
+    `capacity` INTEGER NOT NULL DEFAULT 1,
+    `bookedCount` INTEGER NOT NULL DEFAULT 0,
+    `isBlocked` BOOLEAN NOT NULL DEFAULT false,
+    `note` VARCHAR(200) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    UNIQUE INDEX `availability_days_date_key`(`date`),
+    INDEX `availability_days_date_isBlocked_idx`(`date`, `isBlocked`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `time_slots` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `date` DATE NOT NULL,
@@ -178,6 +193,33 @@ CREATE TABLE `job_applications` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `employees` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `name` VARCHAR(120) NOT NULL,
+    `email` VARCHAR(160) NULL,
+    `phone` VARCHAR(40) NULL,
+    `colour` VARCHAR(9) NOT NULL DEFAULT '#124559',
+    `notes` TEXT NULL,
+    `isActive` BOOLEAN NOT NULL DEFAULT true,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `booking_assignments` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `bookingId` INTEGER NOT NULL,
+    `employeeId` INTEGER NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `booking_assignments_employeeId_idx`(`employeeId`),
+    UNIQUE INDEX `booking_assignments_bookingId_employeeId_key`(`bookingId`, `employeeId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `admins` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `email` VARCHAR(160) NOT NULL,
@@ -228,4 +270,10 @@ ALTER TABLE `quotes` ADD CONSTRAINT `quotes_customerId_fkey` FOREIGN KEY (`custo
 
 -- AddForeignKey
 ALTER TABLE `quotes` ADD CONSTRAINT `quotes_serviceId_fkey` FOREIGN KEY (`serviceId`) REFERENCES `services`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `booking_assignments` ADD CONSTRAINT `booking_assignments_bookingId_fkey` FOREIGN KEY (`bookingId`) REFERENCES `bookings`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `booking_assignments` ADD CONSTRAINT `booking_assignments_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `employees`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
