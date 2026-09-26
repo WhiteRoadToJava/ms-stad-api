@@ -153,3 +153,42 @@ export const sendCallbackEmail = async (callback) => {
     ]),
   });
 };
+
+/**
+ * A job application, sent to the office with the CV attached.
+ *
+ * The attachment is the whole point: the record in the database holds only the
+ * file name, so this email is where the document actually lives. If it fails,
+ * the office still sees the application in the dashboard and can ask for the
+ * CV again.
+ */
+export const sendApplicationEmail = async ({ application, file }) => {
+  await send({
+    to: env.MAIL_TO_INTERNAL,
+    subject: `Jobbansökan från ${application.name}`,
+    html: layout('Ny jobbansökan', [
+      ['Namn', application.name],
+      ['Telefon', application.phone],
+      ['E-post', application.email],
+      ['Ort', application.city || '—'],
+      ['Körkort', application.hasDriversLicense ? 'Ja' : 'Nej'],
+      ['CV', application.cvFileName || 'Bifogades inte'],
+      ['Meddelande', application.message || '—'],
+    ]),
+    attachments: file
+      ? [{ filename: file.originalname, content: file.buffer, contentType: file.mimetype }]
+      : [],
+  });
+
+  // A short confirmation, so an applicant knows it arrived rather than
+  // wondering for a week.
+  await send({
+    to: application.email,
+    subject: 'Tack för din ansökan till MA Städ',
+    html: layout(
+      'Vi har tagit emot din ansökan',
+      [['Namn', application.name]],
+      'Vi läser alla ansökningar och hör av oss om vi har något som passar. Det kan ta någon vecka.',
+    ),
+  });
+};

@@ -9,6 +9,13 @@ import { z } from 'zod';
 
 const trimmed = (max) => z.string().trim().min(1).max(max);
 
+/** Optional text that also accepts the empty string a blank input sends. */
+const optionalText = (max) =>
+  z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    trimmed(max).optional(),
+  );
+
 /** Swedish postal codes are five digits, sometimes written "123 45". */
 const postalCode = z
   .string()
@@ -77,6 +84,22 @@ export const quoteSchema = z.object({
 export const callbackSchema = z.object({
   name: trimmed(120).optional(),
   phone: trimmed(40),
+  website: z.string().max(0).optional(),
+});
+
+export const applicationSchema = z.object({
+  name: trimmed(120),
+  email: z.string().trim().email().max(160),
+  phone: trimmed(40),
+  city: optionalText(80),
+  message: z.string().trim().max(2000).optional(),
+  // Multipart form fields arrive as strings, never booleans.
+  hasDriversLicense: z
+    .preprocess((value) => value === 'true' || value === true, z.boolean())
+    .default(false),
+  // Consent to us keeping the application on file. Required, and the wording
+  // it refers to lives on the page itself.
+  consent: z.preprocess((value) => value === 'true' || value === true, z.literal(true)),
   website: z.string().max(0).optional(),
 });
 
