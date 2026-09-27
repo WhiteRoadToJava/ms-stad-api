@@ -6,6 +6,7 @@ import { availabilityRouter } from './availability.routes.js';
 import { bookingsRouter } from './bookings.routes.js';
 import { quotesRouter } from './quotes.routes.js';
 import { callbacksRouter } from './callbacks.routes.js';
+import { applicationsRouter } from './applications.routes.js';
 import { adminRouter } from './admin/index.js';
 
 export const apiRouter = Router();
@@ -17,7 +18,6 @@ apiRouter.use('/availability', availabilityRouter);
 apiRouter.use('/bookings', bookingsRouter);
 apiRouter.use('/quotes', quotesRouter);
 apiRouter.use('/callbacks', callbacksRouter);
+apiRouter.use('/applications', applicationsRouter);
 apiRouter.use('/admin', adminRouter);
 
-// Routers added in later phases:
-// apiRouter.use('/applications', applicationsRouter);
