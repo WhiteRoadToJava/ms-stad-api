@@ -84,7 +84,7 @@ adminBookingsRouter.patch(
 
     if (!existing) throw AppError.notFound('Booking not found');
 
-    const { customer, ...bookingFields } = req.body;
+    const { customer, customerScope, ...bookingFields } = req.body;
 
     const booking = await prisma.$transaction(async (tx) => {
       const cancelling =
@@ -109,11 +109,27 @@ adminBookingsRouter.patch(
         }
       }
 
-      // The customer row is shared by every booking that person has made, so
-      // correcting a phone number here corrects it everywhere. That is what
-      // the office means by fixing a wrong number.
       if (customer && Object.keys(customer).length > 0) {
-        await tx.customer.update({ where: { id: existing.customerId }, data: customer });
+        if (customerScope === 'booking') {
+          // A correction that belongs to this booking alone. The customer row
+          // is shared, so the only way to keep the others untouched is a
+          // second row, built from the first and then pointed at from here.
+          const current = await tx.customer.findUnique({
+            where: { id: existing.customerId },
+          });
+
+          const { id, createdAt, updatedAt, ...carried } = current;
+
+          const replacement = await tx.customer.create({
+            data: { ...carried, ...customer },
+          });
+
+          bookingFields.customerId = replacement.id;
+        } else {
+          // The number really did change: correcting it here corrects it on
+          // every booking that person has made, which is what was meant.
+          await tx.customer.update({ where: { id: existing.customerId }, data: customer });
+        }
       }
 
       return tx.booking.update({

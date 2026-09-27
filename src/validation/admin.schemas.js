@@ -48,6 +48,14 @@ export const updateBookingSchema = z
     status: z.enum(['NEW', 'CONFIRMED', 'SCHEDULED', 'COMPLETED', 'CANCELLED']).optional(),
     internalNotes: z.string().trim().max(2000).nullable().optional(),
     scheduledDate: z.coerce.date().nullable().optional(),
+    /**
+     * Whose details are being corrected.
+     *
+     * "all" updates the customer, and so every booking that person has made:
+     * a phone number that changed really did change. "booking" leaves the
+     * others alone, for a typo that belongs to this booking only.
+     */
+    customerScope: z.enum(['all', 'booking']).default('all'),
     customer: z
       .object({
         name: trimmed(120).optional(),
