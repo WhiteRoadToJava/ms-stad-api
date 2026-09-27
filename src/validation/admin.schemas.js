@@ -35,11 +35,30 @@ export const idParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 
+/**
+ * What the office may correct on a booking.
+ *
+ * Contact details, the date, the status and internal notes. Never the service,
+ * the size, the extras or the price: those are what the customer chose and
+ * agreed to, and changing them behind their back would make the stored price
+ * describe a job nobody ordered.
+ */
 export const updateBookingSchema = z
   .object({
     status: z.enum(['NEW', 'CONFIRMED', 'SCHEDULED', 'COMPLETED', 'CANCELLED']).optional(),
     internalNotes: z.string().trim().max(2000).nullable().optional(),
     scheduledDate: z.coerce.date().nullable().optional(),
+    customer: z
+      .object({
+        name: trimmed(120).optional(),
+        email: z.string().trim().email().max(160).optional(),
+        phone: trimmed(40).optional(),
+        street: optionalText(160).nullable(),
+        postalCode: optionalText(12).nullable(),
+        city: optionalText(80).nullable(),
+      })
+      .partial()
+      .optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
 
