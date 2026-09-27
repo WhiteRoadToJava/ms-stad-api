@@ -27,11 +27,14 @@ export const customerSchema = z.object({
   name: trimmed(120),
   email: z.string().trim().email().max(160),
   phone: trimmed(40),
-  street: trimmed(160).optional(),
-  postalCode: postalCode.optional(),
-  city: trimmed(80).optional(),
+  street: optionalText(160),
+  postalCode: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    postalCode.optional(),
+  ),
+  city: optionalText(80),
   isCompany: z.boolean().default(false),
-  orgNumber: trimmed(20).optional(),
+  orgNumber: optionalText(20),
 });
 
 export const frequencySchema = z.enum(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
@@ -63,7 +66,7 @@ export const bookingSchema = z.object({
    * never invoiced a figure they were not shown.
    */
   quotedTotal: z.coerce.number().int().min(0).optional(),
-  floor: trimmed(20).optional(),
+  floor: optionalText(20),
   hasElevator: z.boolean().optional(),
   hasPets: z.boolean().optional(),
   message: z.string().trim().max(2000).optional(),
@@ -72,9 +75,9 @@ export const bookingSchema = z.object({
 });
 
 export const quoteSchema = z.object({
-  serviceSlug: trimmed(80).optional(),
+  serviceSlug: optionalText(80),
   customer: customerSchema,
-  propertyType: trimmed(60).optional(),
+  propertyType: optionalText(60),
   squareMeters: z.coerce.number().int().min(1).max(100000).optional(),
   frequency: frequencySchema.optional(),
   description: z.string().trim().max(2000).optional(),
@@ -82,7 +85,7 @@ export const quoteSchema = z.object({
 });
 
 export const callbackSchema = z.object({
-  name: trimmed(120).optional(),
+  name: optionalText(120),
   phone: trimmed(40),
   website: z.string().max(0).optional(),
 });
