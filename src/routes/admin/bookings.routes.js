@@ -3,8 +3,11 @@ import { prisma } from '../../config/prisma.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { AppError } from '../../utils/AppError.js';
 import { validate } from '../../middleware/validate.js';
+import { createBooking } from '../../services/booking.service.js';
+import { sendBookingEmails } from '../../services/mail.service.js';
 import {
   assignmentsSchema,
+  createBookingSchema,
   idParamSchema,
   listQuerySchema,
   updateBookingSchema,
@@ -81,14 +84,43 @@ adminBookingsRouter.patch(
 
     if (!existing) throw AppError.notFound('Booking not found');
 
+    const { customer, ...bookingFields } = req.body;
+
     const booking = await prisma.$transaction(async (tx) => {
+      const cancelling =
+        bookingFields.status === 'CANCELLED' && existing.status !== 'CANCELLED';
+
       // Cancelling frees the day again. Without this the calendar slowly fills
       // up with dates nobody is coming to.
-      if (req.body.status === 'CANCELLED' && existing.status !== 'CANCELLED') {
-        await releaseDay(tx, existing.scheduledDate);
+      if (cancelling) await releaseDay(tx, existing.scheduledDate);
+
+      // Moving a booking is two bookkeeping steps, not one: the old date gets
+      // its place back and the new one gives a place up. Doing only the second
+      // would leave the old day looking busy for a job that moved away.
+      if (!cancelling && bookingFields.scheduledDate !== undefined) {
+        const before = existing.scheduledDate?.toISOString().slice(0, 10) ?? null;
+        const after = bookingFields.scheduledDate?.toISOString().slice(0, 10) ?? null;
+
+        if (before !== after) {
+          if (before) await releaseDay(tx, existing.scheduledDate);
+          // Throws a 409 when the new date is full or closed, and the
+          // transaction rolls back, so the old date is not lost either.
+          if (after) await reserveDay(tx, bookingFields.scheduledDate);
+        }
       }
 
-      return tx.booking.update({ where: { id: existing.id }, data: req.body, include });
+      // The customer row is shared by every booking that person has made, so
+      // correcting a phone number here corrects it everywhere. That is what
+      // the office means by fixing a wrong number.
+      if (customer && Object.keys(customer).length > 0) {
+        await tx.customer.update({ where: { id: existing.customerId }, data: customer });
+      }
+
+      return tx.booking.update({
+        where: { id: existing.id },
+        data: bookingFields,
+        include,
+      });
     });
 
     res.json({ data: booking });
@@ -137,5 +169,40 @@ adminBookingsRouter.put(
     });
 
     res.json({ data: updated });
+  }),
+);
+
+/**
+ * A booking taken over the phone.
+ *
+ * Most cleaning work is still booked by calling, and the office had nowhere to
+ * put those: they were either lost or typed into the public form pretending to
+ * be the customer.
+ *
+ * Separate from the public endpoint on purpose. There is no honeypot and no
+ * check that the displayed price matches, because there is no page here to
+ * have displayed one; instead staff may agree a price and decide whether a
+ * confirmation email is sent at all, which a customer never could.
+ */
+adminBookingsRouter.post(
+  '/',
+  validate({ body: createBookingSchema }),
+  asyncHandler(async (req, res) => {
+    const { sendConfirmation, ...input } = req.body;
+
+    const { booking, customer, service } = await createBooking({
+      ...input,
+      source: 'phone',
+    });
+
+    if (sendConfirmation) {
+      sendBookingEmails({ booking, service, customer }).catch((error) =>
+        console.error('[admin] booking email failed', booking.reference, error),
+      );
+    }
+
+    const full = await prisma.booking.findUnique({ where: { id: booking.id }, include });
+
+    res.status(201).json({ data: full });
   }),
 );
