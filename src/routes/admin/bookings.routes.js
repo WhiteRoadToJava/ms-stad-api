@@ -84,59 +84,17 @@ adminBookingsRouter.patch(
 
     if (!existing) throw AppError.notFound('Booking not found');
 
-    const { customer, customerScope, ...bookingFields } = req.body;
-
     const booking = await prisma.$transaction(async (tx) => {
       const cancelling =
         bookingFields.status === 'CANCELLED' && existing.status !== 'CANCELLED';
 
       // Cancelling frees the day again. Without this the calendar slowly fills
       // up with dates nobody is coming to.
-      if (cancelling) await releaseDay(tx, existing.scheduledDate);
-
-      // Moving a booking is two bookkeeping steps, not one: the old date gets
-      // its place back and the new one gives a place up. Doing only the second
-      // would leave the old day looking busy for a job that moved away.
-      if (!cancelling && bookingFields.scheduledDate !== undefined) {
-        const before = existing.scheduledDate?.toISOString().slice(0, 10) ?? null;
-        const after = bookingFields.scheduledDate?.toISOString().slice(0, 10) ?? null;
-
-        if (before !== after) {
-          if (before) await releaseDay(tx, existing.scheduledDate);
-          // Throws a 409 when the new date is full or closed, and the
-          // transaction rolls back, so the old date is not lost either.
-          if (after) await reserveDay(tx, bookingFields.scheduledDate);
-        }
+      if (req.body.status === 'CANCELLED' && existing.status !== 'CANCELLED') {
+        await releaseDay(tx, existing.scheduledDate);
       }
 
-      if (customer && Object.keys(customer).length > 0) {
-        if (customerScope === 'booking') {
-          // A correction that belongs to this booking alone. The customer row
-          // is shared, so the only way to keep the others untouched is a
-          // second row, built from the first and then pointed at from here.
-          const current = await tx.customer.findUnique({
-            where: { id: existing.customerId },
-          });
-
-          const { id, createdAt, updatedAt, ...carried } = current;
-
-          const replacement = await tx.customer.create({
-            data: { ...carried, ...customer },
-          });
-
-          bookingFields.customerId = replacement.id;
-        } else {
-          // The number really did change: correcting it here corrects it on
-          // every booking that person has made, which is what was meant.
-          await tx.customer.update({ where: { id: existing.customerId }, data: customer });
-        }
-      }
-
-      return tx.booking.update({
-        where: { id: existing.id },
-        data: bookingFields,
-        include,
-      });
+      return tx.booking.update({ where: { id: existing.id }, data: req.body, include });
     });
 
     res.json({ data: booking });
