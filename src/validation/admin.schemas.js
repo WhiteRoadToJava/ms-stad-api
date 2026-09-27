@@ -85,6 +85,36 @@ export const updateServiceSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
 
+export const createBookingSchema = z.object({
+  serviceSlug: trimmed(80),
+  customer: z.object({
+    name: trimmed(120),
+    email: z.string().trim().email().max(160),
+    phone: trimmed(40),
+    street: optionalText(160),
+    postalCode: optionalText(12),
+    city: optionalText(80),
+  }),
+  squareMeters: z.coerce.number().int().min(10).max(1000).optional(),
+  hours: z.coerce.number().min(1).max(40).optional(),
+  rooms: z.coerce.number().int().min(1).max(30).optional(),
+  frequency: z.enum(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']).default('ONCE'),
+  extraKeys: z.array(trimmed(60)).max(10).default([]),
+  applyRut: z.boolean().default(true),
+  scheduledDate: z.coerce.date().optional(),
+  message: z.string().trim().max(2000).optional(),
+  /** Why the price was agreed at this figure, or anything the team should know. */
+  internalNotes: z.string().trim().max(2000).optional(),
+  /**
+   * An agreed price BEFORE the RUT deduction, in ore. The deduction is
+   * recalculated from it, so what is claimed from Skatteverket always matches
+   * what was charged.
+   */
+  priceOverride: z.coerce.number().int().min(0).max(100_000_00).optional(),
+  /** The office decides: some customers are told on the phone and want nothing. */
+  sendConfirmation: z.boolean().default(true),
+});
+
 export const employeeSchema = z.object({
   name: trimmed(120),
   email: optionalText(160),
