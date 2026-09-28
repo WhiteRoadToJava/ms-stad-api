@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { AppError } from '../../utils/AppError.js';
 import { validate } from '../../middleware/validate.js';
+import { requireRole } from '../../middleware/auth.js';
 import { createBooking } from '../../services/booking.service.js';
 import { sendBookingEmails } from '../../services/mail.service.js';
 import {
