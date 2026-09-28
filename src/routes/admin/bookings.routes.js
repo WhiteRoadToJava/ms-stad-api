@@ -84,17 +84,59 @@ adminBookingsRouter.patch(
 
     if (!existing) throw AppError.notFound('Booking not found');
 
+    const { customer, customerScope, ...bookingFields } = req.body;
+
     const booking = await prisma.$transaction(async (tx) => {
       const cancelling =
         bookingFields.status === 'CANCELLED' && existing.status !== 'CANCELLED';
 
       // Cancelling frees the day again. Without this the calendar slowly fills
       // up with dates nobody is coming to.
-      if (req.body.status === 'CANCELLED' && existing.status !== 'CANCELLED') {
-        await releaseDay(tx, existing.scheduledDate);
+      if (cancelling) await releaseDay(tx, existing.scheduledDate);
+
+      // Moving a booking is two bookkeeping steps, not one: the old date gets
+      // its place back and the new one gives a place up. Doing only the second
+      // would leave the old day looking busy for a job that moved away.
+      if (!cancelling && bookingFields.scheduledDate !== undefined) {
+        const before = existing.scheduledDate?.toISOString().slice(0, 10) ?? null;
+        const after = bookingFields.scheduledDate?.toISOString().slice(0, 10) ?? null;
+
+        if (before !== after) {
+          if (before) await releaseDay(tx, existing.scheduledDate);
+          // Throws a 409 when the new date is full or closed, and the whole
+          // transaction rolls back, so the old date is not lost either.
+          if (after) await reserveDay(tx, bookingFields.scheduledDate);
+        }
       }
 
-      return tx.booking.update({ where: { id: existing.id }, data: req.body, include });
+      if (customer && Object.keys(customer).length > 0) {
+        if (customerScope === 'booking') {
+          // A correction belonging to this booking alone. The customer row is
+          // shared, so the only way to leave the others untouched is a second
+          // row, built from the first and then pointed at from here.
+          const current = await tx.customer.findUnique({
+            where: { id: existing.customerId },
+          });
+
+          const { id, createdAt, updatedAt, ...carried } = current;
+
+          const replacement = await tx.customer.create({
+            data: { ...carried, ...customer },
+          });
+
+          bookingFields.customerId = replacement.id;
+        } else {
+          // The number really did change: correcting it here corrects it on
+          // every booking that person has made, which is what was meant.
+          await tx.customer.update({ where: { id: existing.customerId }, data: customer });
+        }
+      }
+
+      return tx.booking.update({
+        where: { id: existing.id },
+        data: bookingFields,
+        include,
+      });
     });
 
     res.json({ data: booking });
@@ -178,5 +220,47 @@ adminBookingsRouter.post(
     const full = await prisma.booking.findUnique({ where: { id: booking.id }, include });
 
     res.status(201).json({ data: full });
+  }),
+);
+
+/**
+ * Removes a booking entered by mistake.
+ *
+ * Deliberately not the way to end a real booking: that is what CANCELLED is
+ * for, and a cancelled booking still explains why a day was held and then
+ * freed. This is for the row that should never have existed, typed against the
+ * wrong customer or created twice by a double click.
+ *
+ * A completed booking is a record of work done and money owed, so it cannot be
+ * removed at all. Admin only, since nothing brings it back.
+ */
+adminBookingsRouter.delete(
+  '/:id',
+  requireRole('ADMIN'),
+  validate({ params: idParamSchema }),
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.booking.findUnique({ where: { id: req.params.id } });
+
+    if (!existing) throw AppError.notFound('Booking not found');
+
+    if (existing.status === 'COMPLETED') {
+      throw AppError.conflict(
+        'A completed booking cannot be deleted. Cancel it instead if it was wrong.',
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // The day it was holding goes back to the calendar, unless cancelling
+      // had already given it back.
+      if (existing.status !== 'CANCELLED') {
+        await releaseDay(tx, existing.scheduledDate);
+      }
+
+      await tx.bookingAssignment.deleteMany({ where: { bookingId: existing.id } });
+      await tx.bookingExtra.deleteMany({ where: { bookingId: existing.id } });
+      await tx.booking.delete({ where: { id: existing.id } });
+    });
+
+    res.status(204).end();
   }),
 );
