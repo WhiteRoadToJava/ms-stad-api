@@ -10,6 +10,7 @@ import { AppError } from '../utils/AppError.js';
 import { buildReference } from '../utils/reference.js';
 import { reserveDay } from './availability.service.js';
 import { calculatePrice } from './pricing.service.js';
+import { LABOR_SHARE, RUT_RATE } from '../config/pricing.js';
 
 const loadService = async (slug) => {
   const service = await prisma.service.findFirst({
@@ -48,10 +49,34 @@ const nextReference = async (tx, model, prefix) => {
   return buildReference(prefix, now, countThisMonth + 1);
 };
 
+/**
+ * Applies a price agreed on the phone.
+ *
+ * The office sets the price BEFORE the RUT deduction, and the deduction is
+ * recalculated from it. Letting them set the final figure instead would leave
+ * the RUT amount claimed from Skatteverket describing a price that was never
+ * charged, which is a tax question, not a rounding one.
+ */
+const withAgreedPrice = (breakdown, grossPrice) => {
+  const share = LABOR_SHARE[breakdown.serviceSlug] ?? LABOR_SHARE.default;
+
+  const rutDeduction = breakdown.applyRut
+    ? Math.round((grossPrice * share * RUT_RATE) / 100) * 100
+    : 0;
+
+  return {
+    ...breakdown,
+    basePrice: Math.max(grossPrice - breakdown.extrasPrice, 0),
+    grossPrice,
+    rutDeduction,
+    totalPrice: grossPrice - rutDeduction,
+  };
+};
+
 export const createBooking = async (input) => {
   const service = await loadService(input.serviceSlug);
 
-  const breakdown = calculatePrice({
+  let breakdown = calculatePrice({
     service,
     squareMeters: input.squareMeters,
     hours: input.hours,
@@ -89,6 +114,15 @@ export const createBooking = async (input) => {
     });
   }
 
+  // Only the office can send one of these, and only with a reason recorded
+  // alongside it, so an unexplained price never appears in the books.
+  if (input.priceOverride !== undefined && input.priceOverride !== null) {
+    breakdown = withAgreedPrice(
+      { ...breakdown, serviceSlug: service.slug },
+      input.priceOverride,
+    );
+  }
+
   const result = await prisma.$transaction(async (tx) => {
     const customer = await upsertCustomer(tx, input.customer);
 
@@ -116,6 +150,10 @@ export const createBooking = async (input) => {
         totalPrice: breakdown.totalPrice,
         applyRut: breakdown.applyRut,
         message: input.message,
+        internalNotes: input.internalNotes,
+        // "web" for a customer filling the form, "phone" when the office takes
+        // the call. Worth knowing when deciding what the site is doing for you.
+        source: input.source ?? 'web',
         extras: {
           create: breakdown.appliedExtras.map((extra) => ({
             extraId: extra.id,

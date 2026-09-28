@@ -293,3 +293,48 @@ describe('the price examples published on the site', () => {
     });
   }
 });
+
+describe('a price agreed on the phone', () => {
+  // Mirrors withAgreedPrice in booking.service.js: the office sets the price
+  // before RUT, and the deduction follows from it. Letting them set the final
+  // figure would leave the amount claimed from Skatteverket describing a price
+  // that was never charged.
+  const agreed = (grossPrice, { rutEligible = true, share = 1, extrasPrice = 0 } = {}) => {
+    const rutDeduction = rutEligible
+      ? Math.round((grossPrice * share * 0.5) / 100) * 100
+      : 0;
+
+    return {
+      basePrice: Math.max(grossPrice - extrasPrice, 0),
+      grossPrice,
+      rutDeduction,
+      totalPrice: grossPrice - rutDeduction,
+    };
+  };
+
+  it('recalculates the deduction from the agreed price', () => {
+    const price = agreed(kr(2000));
+
+    assert.equal(price.rutDeduction, kr(1000));
+    assert.equal(price.totalPrice, kr(1000));
+  });
+
+  it('keeps gross, deduction and total adding up', () => {
+    const price = agreed(kr(1750));
+
+    assert.equal(price.grossPrice - price.rutDeduction, price.totalPrice);
+  });
+
+  it('gives no deduction on a business booking', () => {
+    const price = agreed(kr(2000), { rutEligible: false });
+
+    assert.equal(price.rutDeduction, 0);
+    assert.equal(price.totalPrice, kr(2000));
+  });
+
+  it('leaves the extras out of the base price', () => {
+    const price = agreed(kr(2000), { extrasPrice: kr(400) });
+
+    assert.equal(price.basePrice, kr(1600));
+  });
+});
