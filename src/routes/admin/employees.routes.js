@@ -6,6 +6,7 @@ import { validate } from '../../middleware/validate.js';
 import { requireRole } from '../../middleware/auth.js';
 import {
   employeeSchema,
+  extraWorkSchema,
   idParamSchema,
   listQuerySchema,
   updateEmployeeSchema,
@@ -121,9 +122,116 @@ adminEmployeesRouter.get(
       }),
     ]);
 
+    // A count per month, from every job this person has, not just the page.
+    // "How many did Anna do in October" is asked far more often than any
+    // single booking on this list.
+    const dated = await prisma.booking.findMany({
+      where: { ...where, scheduledDate: { not: null }, status: { not: 'CANCELLED' } },
+      select: { scheduledDate: true },
+      orderBy: { scheduledDate: 'desc' },
+    });
+
+    const months = new Map();
+
+    for (const booking of dated) {
+      const key = booking.scheduledDate.toISOString().slice(0, 7);
+      months.set(key, (months.get(key) ?? 0) + 1);
+    }
+
     res.json({
       data: items,
-      meta: { total, page, perPage, upcoming, thisMonth },
+      meta: {
+        total,
+        page,
+        perPage,
+        upcoming,
+        thisMonth,
+        months: [...months.entries()].map(([month, jobs]) => ({ month, jobs })),
+      },
     });
+  }),
+);
+
+/** Minutes between two clock times on the same day. */
+const minutesBetween = (startTime, endTime) => {
+  const [startHour, startMinute] = startTime.split(':').map(Number);
+  const [endHour, endMinute] = endTime.split(':').map(Number);
+
+  return endHour * 60 + endMinute - (startHour * 60 + startMinute);
+};
+
+/**
+ * Extra work: a second visit, a redo, something the customer asked for on the
+ * spot.
+ *
+ * Normal jobs are not clocked, because the price was agreed in advance. This
+ * is the exception worth recording: it costs time the booking never accounted
+ * for, and a run of redos for one person or one customer is worth seeing.
+ */
+adminEmployeesRouter.post(
+  '/:id/extra-work',
+  validate({ params: idParamSchema, body: extraWorkSchema }),
+  asyncHandler(async (req, res) => {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+
+    if (!employee) throw AppError.notFound('Employee not found');
+
+    // The id in the path wins: the office opened this person's page.
+    const { employeeId, ...input } = req.body;
+
+    const entry = await prisma.extraWork.create({
+      data: {
+        ...input,
+        employeeId: employee.id,
+        // Stored as well as the times, because the sum is what gets asked for.
+        minutes: minutesBetween(input.startTime, input.endTime),
+      },
+      include: { booking: { select: { reference: true } } },
+    });
+
+    res.status(201).json({ data: entry });
+  }),
+);
+
+/** One person's extra work, newest first, with a total per month. */
+adminEmployeesRouter.get(
+  '/:id/extra-work',
+  validate({ params: idParamSchema }),
+  asyncHandler(async (req, res) => {
+    const entries = await prisma.extraWork.findMany({
+      where: { employeeId: req.params.id },
+      include: { booking: { select: { reference: true } } },
+      orderBy: { date: 'desc' },
+      take: 100,
+    });
+
+    const months = new Map();
+
+    for (const entry of entries) {
+      const key = entry.date.toISOString().slice(0, 7);
+      const month = months.get(key) ?? { month: key, entries: 0, minutes: 0 };
+
+      month.entries += 1;
+      month.minutes += entry.minutes;
+      months.set(key, month);
+    }
+
+    res.json({ data: entries, meta: { months: [...months.values()] } });
+  }),
+);
+
+adminEmployeesRouter.delete(
+  '/:employeeId/extra-work/:id',
+  requireRole('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id)) throw AppError.badRequest('Invalid id');
+
+    // Deleted outright: an entry typed against the wrong person is a mistake,
+    // not a record worth keeping.
+    await prisma.extraWork.deleteMany({ where: { id } });
+
+    res.status(204).end();
   }),
 );
