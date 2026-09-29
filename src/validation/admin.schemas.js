@@ -123,6 +123,27 @@ export const createBookingSchema = z.object({
   sendConfirmation: z.boolean().default(true),
 });
 
+/** A stretch of time, written the way a clock shows it. */
+const clockTime = z
+  .string()
+  .trim()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a time such as 13:00');
+
+export const extraWorkSchema = z
+  .object({
+    employeeId: z.coerce.number().int().positive(),
+    bookingId: z.coerce.number().int().positive().optional(),
+    date: z.coerce.date(),
+    startTime: clockTime,
+    endTime: clockTime,
+    reason: z.enum(['REDO', 'SUPERVISOR', 'EXTRA']).default('EXTRA'),
+    description: z.string().trim().max(1000).optional(),
+  })
+  .refine((value) => value.endTime > value.startTime, {
+    message: 'The end time must be after the start time',
+    path: ['endTime'],
+  });
+
 export const employeeSchema = z.object({
   name: trimmed(120),
   email: optionalText(160),

@@ -51,7 +51,7 @@ describe('every module loads', () => {
         // Narrowly: only the two shapes a missing generated client takes. A
         // broader match would swallow the very mistakes this test exists for.
         const clientMissing =
-          /Cannot find module '@prisma\/client'/.test(error.message) ||
+          /Cannot find (module|package) '@prisma\/client'/.test(error.message) ||
           /Named export 'PrismaClient' not found/.test(error.message) ||
           /@prisma\/client did not initialize/.test(error.message);
 
