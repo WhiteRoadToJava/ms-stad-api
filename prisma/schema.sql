@@ -220,6 +220,24 @@ CREATE TABLE `booking_assignments` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `extra_work` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `employeeId` INTEGER NOT NULL,
+    `bookingId` INTEGER NULL,
+    `date` DATE NOT NULL,
+    `startTime` VARCHAR(5) NOT NULL,
+    `endTime` VARCHAR(5) NOT NULL,
+    `minutes` INTEGER NOT NULL,
+    `reason` ENUM('REDO', 'SUPERVISOR', 'EXTRA') NOT NULL DEFAULT 'EXTRA',
+    `description` TEXT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `extra_work_employeeId_date_idx`(`employeeId`, `date`),
+    INDEX `extra_work_date_idx`(`date`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `admins` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `email` VARCHAR(160) NOT NULL,
@@ -276,4 +294,10 @@ ALTER TABLE `booking_assignments` ADD CONSTRAINT `booking_assignments_bookingId_
 
 -- AddForeignKey
 ALTER TABLE `booking_assignments` ADD CONSTRAINT `booking_assignments_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `employees`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `extra_work` ADD CONSTRAINT `extra_work_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `employees`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `extra_work` ADD CONSTRAINT `extra_work_bookingId_fkey` FOREIGN KEY (`bookingId`) REFERENCES `bookings`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
