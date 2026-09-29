@@ -165,6 +165,7 @@ model Booking {
   timeSlot TimeSlot?      @relation(fields: [timeSlotId], references: [id])
   extras   BookingExtra[]
   assignments BookingAssignment[]
+  extraWork   ExtraWork[]
 
   @@index([status, scheduledDate])
   @@index([createdAt])
@@ -325,6 +326,7 @@ model Employee {
   isActive Boolean @default(true)
 
   assignments BookingAssignment[]
+  extraWork   ExtraWork[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -350,6 +352,53 @@ model BookingAssignment {
   @@unique([bookingId, employeeId])
   @@index([employeeId])
   @@map("booking_assignments")
+}
+
+/** Why an extra visit was needed. Shapes what the office does about it. */
+enum ExtraWorkReason {
+  /** Something was missed and had to be cleaned again. */
+  REDO
+  /** The customer or an inspector asked for it. */
+  SUPERVISOR
+  /** Work beyond what was booked. */
+  EXTRA
+}
+
+/**
+ * Time spent beyond the booked job.
+ *
+ * Normal jobs are not clocked: the price is agreed in advance and the hours
+ * are nobody's business. This is the exception worth recording, because a
+ * second visit costs money that the booking never accounted for, and a pattern
+ * of them says something about how the first visit went.
+ *
+ * Kept in its own table rather than as fields on the booking: two people can
+ * each go back, and an extra visit does not always belong to one booking.
+ */
+model ExtraWork {
+  id Int @id @default(autoincrement())
+
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  employeeId Int
+
+  /** The job it relates to, when it relates to one. */
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  bookingId Int?
+
+  date      DateTime @db.Date
+  startTime String   @db.VarChar(5) // "13:00"
+  endTime   String   @db.VarChar(5)
+  /** Stored as well as the times: the sum is asked for far more often. */
+  minutes   Int
+
+  reason      ExtraWorkReason @default(EXTRA)
+  description String?         @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([employeeId, date])
+  @@index([date])
+  @@map("extra_work")
 }
 
 model Admin {
